@@ -1,0 +1,3 @@
+export { l as iconsSchema, v as internal_registryResolveItemsTree, m as registryBaseColorSchema, j as registryIndexSchema, g as registryItemCssVarsSchema, e as registryItemFileSchema, h as registryItemSchema, f as registryItemTailwindSchema, d as registryItemTypeSchema, n as registryResolvedItemsTreeSchema, i as registrySchema, k as stylesSchema } from '../chunk-Y27KWSGT.js';
+//# sourceMappingURL=out.js.map
+//# sourceMappingURL=index.js.map

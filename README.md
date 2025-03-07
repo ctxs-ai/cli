@@ -1,17 +1,33 @@
-# shadcn/ui
+# ctxs CLI
 
-Accessible and customizable components that you can copy and paste into your apps. Free. Open Source. **Use this to build your own component library**.
+A CLI for adding context windows and prompts to your project.
 
-![hero](apps/www/public/og.jpg)
+## Usage
+
+## add
+
+Use the `add` command to add contexts to your project.
+
+```bash
+npx ctxs add [component]
+```
+
+### Example
+
+```bash
+npx ctxs add
+```
+
+You can also run the command without any arguments to view a list of all available components:
+
+```bash
+npx ctxs add
+```
 
 ## Documentation
 
-Visit http://ui.shadcn.com/docs to view the documentation.
-
-## Contributing
-
-Please read the [contributing guide](/CONTRIBUTING.md).
+Visit https://ctxs.ai for more information
 
 ## License
 
-Licensed under the [MIT license](https://github.com/shadcn/ui/blob/main/LICENSE.md).
+Licensed under the [MIT license](LICENSE.md).
