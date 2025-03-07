@@ -15,14 +15,6 @@ import { z } from "zod"
 export type TailwindVersion = "v3" | "v4" | null
 
 type ProjectInfo = {
-  framework: Framework
-  isSrcDir: boolean
-  isRSC: boolean
-  isTsx: boolean
-  tailwindConfigFile: string | null
-  tailwindCssFile: string | null
-  tailwindVersion: TailwindVersion
-  aliasPrefix: string | null
 }
 
 const PROJECT_SHARED_IGNORE = [
@@ -40,100 +32,9 @@ const TS_CONFIG_SCHEMA = z.object({
 })
 
 export async function getProjectInfo(cwd: string): Promise<ProjectInfo | null> {
-  const [
-    configFiles,
-    isSrcDir,
-    isTsx,
-    tailwindConfigFile,
-    tailwindCssFile,
-    tailwindVersion,
-    aliasPrefix,
-    packageJson,
-  ] = await Promise.all([
-    fg.glob("**/{next,vite,astro,app}.config.*|gatsby-config.*|composer.json", {
-      cwd,
-      deep: 3,
-      ignore: PROJECT_SHARED_IGNORE,
-    }),
-    fs.pathExists(path.resolve(cwd, "src")),
-    isTypeScriptProject(cwd),
-    getTailwindConfigFile(cwd),
-    getTailwindCssFile(cwd),
-    getTailwindVersion(cwd),
-    getTsConfigAliasPrefix(cwd),
-    getPackageInfo(cwd, false),
-  ])
-
-  const isUsingAppDir = await fs.pathExists(
-    path.resolve(cwd, `${isSrcDir ? "src/" : ""}app`)
-  )
+  const isSrcDir = await fs.pathExists(path.resolve(cwd, "src"))
 
   const type: ProjectInfo = {
-    framework: FRAMEWORKS["manual"],
-    isSrcDir,
-    isRSC: false,
-    isTsx,
-    tailwindConfigFile,
-    tailwindCssFile,
-    tailwindVersion,
-    aliasPrefix,
-  }
-
-  // Next.js.
-  if (configFiles.find((file) => file.startsWith("next.config."))?.length) {
-    type.framework = isUsingAppDir
-      ? FRAMEWORKS["next-app"]
-      : FRAMEWORKS["next-pages"]
-    type.isRSC = isUsingAppDir
-    return type
-  }
-
-  // Astro.
-  if (configFiles.find((file) => file.startsWith("astro.config."))?.length) {
-    type.framework = FRAMEWORKS["astro"]
-    return type
-  }
-
-  // Gatsby.
-  if (configFiles.find((file) => file.startsWith("gatsby-config."))?.length) {
-    type.framework = FRAMEWORKS["gatsby"]
-    return type
-  }
-
-  // Laravel.
-  if (configFiles.find((file) => file.startsWith("composer.json"))?.length) {
-    type.framework = FRAMEWORKS["laravel"]
-    return type
-  }
-
-  // Remix.
-  if (
-    Object.keys(packageJson?.dependencies ?? {}).find((dep) =>
-      dep.startsWith("@remix-run/")
-    )
-  ) {
-    type.framework = FRAMEWORKS["remix"]
-    return type
-  }
-
-  // TanStack Start.
-  if (
-    configFiles.find((file) => file.startsWith("app.config."))?.length &&
-    [
-      ...Object.keys(packageJson?.dependencies ?? {}),
-      ...Object.keys(packageJson?.devDependencies ?? {}),
-    ].find((dep) => dep.startsWith("@tanstack/start"))
-  ) {
-    type.framework = FRAMEWORKS["tanstack-start"]
-    return type
-  }
-
-  // Vite.
-  // Some Remix templates also have a vite.config.* file.
-  // We'll assume that it got caught by the Remix check above.
-  if (configFiles.find((file) => file.startsWith("vite.config."))?.length) {
-    type.framework = FRAMEWORKS["vite"]
-    return type
   }
 
   return type
@@ -154,8 +55,8 @@ export async function getTailwindVersion(
   if (
     /^(?:\^|~)?3(?:\.\d+)*(?:-.*)?$/.test(
       packageInfo?.dependencies?.tailwindcss ||
-        packageInfo?.devDependencies?.tailwindcss ||
-        ""
+      packageInfo?.devDependencies?.tailwindcss ||
+      ""
     )
   ) {
     return "v3"
@@ -296,17 +197,6 @@ export async function getProjectConfig(
 
   const config: RawConfig = {
     $schema: "https://ui.shadcn.com/schema.json",
-    rsc: projectInfo.isRSC,
-    tsx: projectInfo.isTsx,
-    style: "new-york",
-    tailwind: {
-      config: projectInfo.tailwindConfigFile ?? "",
-      baseColor: "zinc",
-      css: projectInfo.tailwindCssFile,
-      cssVariables: true,
-      prefix: "",
-    },
-    iconLibrary: "lucide",
     aliases: {
       components: `${projectInfo.aliasPrefix}/components`,
       ui: `${projectInfo.aliasPrefix}/components/ui`,

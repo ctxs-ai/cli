@@ -9,7 +9,6 @@ import { getConfig } from "@/src/utils/get-config"
 import { handleError } from "@/src/utils/handle-error"
 import { highlighter } from "@/src/utils/highlighter"
 import { logger } from "@/src/utils/logger"
-import { updateAppIndex } from "@/src/utils/update-app-index"
 import { Command } from "commander"
 import prompts from "prompts"
 import { z } from "zod"
@@ -39,6 +38,7 @@ export const addOptionsSchema = z.object({
   silent: z.boolean(),
   srcDir: z.boolean().optional(),
   cssVariables: z.boolean(),
+  skipPreflight: z.boolean().optional(),
 })
 
 export const add = new Command()
@@ -69,6 +69,7 @@ export const add = new Command()
   )
   .option("--css-variables", "use css variables for theming.", true)
   .option("--no-css-variables", "do not use css variables for theming.")
+  .option("--skip-preflight", "skip preflight checks for components.json and tailwind config")
   .action(async (components, opts) => {
     try {
       const options = addOptionsSchema.parse({
@@ -77,125 +78,19 @@ export const add = new Command()
         ...opts,
       })
 
-      // Confirm if user is installing themes.
-      // For now, we assume a theme is prefixed with "theme-".
-      const isTheme = options.components?.some((component) =>
-        component.includes("theme-")
-      )
-      if (!options.yes && isTheme) {
-        logger.break()
-        const { confirm } = await prompts({
-          type: "confirm",
-          name: "confirm",
-          message: highlighter.warn(
-            "You are about to install a new theme. \nExisting CSS variables will be overwritten. Continue?"
-          ),
-        })
-        if (!confirm) {
-          logger.break()
-          logger.log("Theme installation cancelled.")
-          logger.break()
-          process.exit(1)
-        }
-      }
-
       if (!options.components?.length) {
         options.components = await promptForRegistryComponents(options)
       }
+      console.log("options.components", options.components)
 
-      const deprecatedComponents = DEPRECATED_COMPONENTS.filter((component) =>
-        options.components?.includes(component.name)
-      )
-
-      if (deprecatedComponents?.length) {
-        logger.break()
-        deprecatedComponents.forEach((component) => {
-          logger.warn(highlighter.warn(component.message))
-        })
-        logger.break()
-        process.exit(1)
-      }
-
-      let { errors, config } = await preFlightAdd(options)
-
-      // No components.json file. Prompt the user to run init.
-      if (errors[ERRORS.MISSING_CONFIG]) {
-        const { proceed } = await prompts({
-          type: "confirm",
-          name: "proceed",
-          message: `You need to create a ${highlighter.info(
-            "components.json"
-          )} file to add components. Proceed?`,
-          initial: true,
-        })
-
-        if (!proceed) {
-          logger.break()
-          process.exit(1)
-        }
-
-        config = await runInit({
-          cwd: options.cwd,
-          yes: true,
-          force: true,
-          defaults: false,
-          skipPreflight: false,
-          silent: true,
-          isNewProject: false,
-          srcDir: options.srcDir,
-          cssVariables: options.cssVariables,
-        })
-      }
-
-      let shouldUpdateAppIndex = false
-      if (errors[ERRORS.MISSING_DIR_OR_EMPTY_PROJECT]) {
-        const { projectPath, projectType } = await createProject({
-          cwd: options.cwd,
-          force: options.overwrite,
-          srcDir: options.srcDir,
-          components: options.components,
-        })
-        if (!projectPath) {
-          logger.break()
-          process.exit(1)
-        }
-        options.cwd = projectPath
-
-        if (projectType === "monorepo") {
-          options.cwd = path.resolve(options.cwd, "apps/web")
-          config = await getConfig(options.cwd)
-        } else {
-          config = await runInit({
-            cwd: options.cwd,
-            yes: true,
-            force: true,
-            defaults: false,
-            skipPreflight: true,
-            silent: true,
-            isNewProject: true,
-            srcDir: options.srcDir,
-            cssVariables: options.cssVariables,
-          })
-
-          shouldUpdateAppIndex =
-            options.components?.length === 1 &&
-            !!options.components[0].match(/\/chat\/b\//)
-        }
-      }
-
+      const config = await getConfig(options.cwd)
       if (!config) {
-        throw new Error(
-          `Failed to read config at ${highlighter.info(options.cwd)}.`
-        )
+        logger.break()
+        handleError(new Error("Failed to get config."))
+        return
       }
 
       await addComponents(options.components, config, options)
-
-      // If we're adding a single component and it's from the v0 registry,
-      // let's update the app/page.tsx file to import the component.
-      if (shouldUpdateAppIndex) {
-        await updateAppIndex(options.components[0], config)
-      }
     } catch (error) {
       logger.break()
       handleError(error)
@@ -215,9 +110,6 @@ async function promptForRegistryComponents(
   if (options.all) {
     return registryIndex
       .map((entry) => entry.name)
-      .filter(
-        (component) => !DEPRECATED_COMPONENTS.some((c) => c.name === component)
-      )
   }
 
   if (options.components?.length) {
@@ -231,16 +123,9 @@ async function promptForRegistryComponents(
     hint: "Space to select. A to toggle all. Enter to submit.",
     instructions: false,
     choices: registryIndex
-      .filter(
-        (entry) =>
-          entry.type === "registry:ui" &&
-          !DEPRECATED_COMPONENTS.some(
-            (component) => component.name === entry.name
-          )
-      )
       .map((entry) => ({
         title: entry.name,
-        value: entry.name,
+        value: `/gh/${entry.author}/${entry.name}.json`,
         selected: options.all ? true : options.components?.includes(entry.name),
       })),
   })

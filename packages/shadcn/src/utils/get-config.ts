@@ -6,6 +6,7 @@ import { cosmiconfig } from "cosmiconfig"
 import fg from "fast-glob"
 import { loadConfig } from "tsconfig-paths"
 import { z } from "zod"
+import { logger } from "./logger"
 
 export const DEFAULT_STYLE = "default"
 export const DEFAULT_COMPONENTS = "@/components"
@@ -23,24 +24,13 @@ const explorer = cosmiconfig("components", {
 export const rawConfigSchema = z
   .object({
     $schema: z.string().optional(),
-    style: z.string(),
-    rsc: z.coerce.boolean().default(false),
-    tsx: z.coerce.boolean().default(true),
-    tailwind: z.object({
-      config: z.string().optional(),
-      css: z.string(),
-      baseColor: z.string(),
-      cssVariables: z.boolean().default(true),
-      prefix: z.string().default("").optional(),
-    }),
     aliases: z.object({
-      components: z.string(),
-      utils: z.string(),
+      components: z.string().optional(),
+      utils: z.string().optional(),
       ui: z.string().optional(),
       lib: z.string().optional(),
       hooks: z.string().optional(),
     }),
-    iconLibrary: z.string().optional(),
   })
   .strict()
 
@@ -49,13 +39,6 @@ export type RawConfig = z.infer<typeof rawConfigSchema>
 export const configSchema = rawConfigSchema.extend({
   resolvedPaths: z.object({
     cwd: z.string(),
-    tailwindConfig: z.string(),
-    tailwindCss: z.string(),
-    utils: z.string(),
-    components: z.string(),
-    lib: z.string(),
-    hooks: z.string(),
-    ui: z.string(),
   }),
 })
 
@@ -69,75 +52,31 @@ export async function getConfig(cwd: string) {
   const config = await getRawConfig(cwd)
 
   if (!config) {
+    logger.error(`No config found in ${highlighter.info(cwd)}.`)
     return null
-  }
-
-  // Set default icon library if not provided.
-  if (!config.iconLibrary) {
-    config.iconLibrary = config.style === "new-york" ? "radix" : "lucide"
   }
 
   return await resolveConfigPaths(cwd, config)
 }
 
 export async function resolveConfigPaths(cwd: string, config: RawConfig) {
-  // Read tsconfig.json.
-  const tsConfig = await loadConfig(cwd)
-
-  if (tsConfig.resultType === "failed") {
-    throw new Error(
-      `Failed to load ${config.tsx ? "tsconfig" : "jsconfig"}.json. ${
-        tsConfig.message ?? ""
-      }`.trim()
-    )
-  }
 
   return configSchema.parse({
     ...config,
     resolvedPaths: {
       cwd,
-      tailwindConfig: config.tailwind.config
-        ? path.resolve(cwd, config.tailwind.config)
-        : "",
-      tailwindCss: path.resolve(cwd, config.tailwind.css),
-      utils: await resolveImport(config.aliases["utils"], tsConfig),
-      components: await resolveImport(config.aliases["components"], tsConfig),
-      ui: config.aliases["ui"]
-        ? await resolveImport(config.aliases["ui"], tsConfig)
-        : path.resolve(
-            (await resolveImport(config.aliases["components"], tsConfig)) ??
-              cwd,
-            "ui"
-          ),
-      // TODO: Make this configurable.
-      // For now, we assume the lib and hooks directories are one level up from the components directory.
-      lib: config.aliases["lib"]
-        ? await resolveImport(config.aliases["lib"], tsConfig)
-        : path.resolve(
-            (await resolveImport(config.aliases["utils"], tsConfig)) ?? cwd,
-            ".."
-          ),
-      hooks: config.aliases["hooks"]
-        ? await resolveImport(config.aliases["hooks"], tsConfig)
-        : path.resolve(
-            (await resolveImport(config.aliases["components"], tsConfig)) ??
-              cwd,
-            "..",
-            "hooks"
-          ),
     },
   })
 }
 
-export async function getRawConfig(cwd: string): Promise<RawConfig | null> {
+export async function getRawConfig(cwd: string): Promise<Config | null> {
   try {
-    const configResult = await explorer.search(cwd)
-
-    if (!configResult) {
-      return null
+    return {
+      aliases: {},
+      resolvedPaths: {
+        cwd,
+      },
     }
-
-    return rawConfigSchema.parse(configResult.config)
   } catch (error) {
     const componentPath = `${cwd}/components.json`
     throw new Error(
@@ -149,35 +88,35 @@ export async function getRawConfig(cwd: string): Promise<RawConfig | null> {
 // Note: we can check for -workspace.yaml or "workspace" in package.json.
 // Since cwd is not necessarily the root of the project.
 // We'll instead check if ui aliases resolve to a different root.
-export async function getWorkspaceConfig(config: Config) {
-  let resolvedAliases: any = {}
+// export async function getWorkspaceConfig(config: Config) {
+//   let resolvedAliases: any = {}
 
-  for (const key of Object.keys(config.aliases)) {
-    if (!isAliasKey(key, config)) {
-      continue
-    }
+//   for (const key of Object.keys(config.aliases)) {
+//     if (!isAliasKey(key, config)) {
+//       continue
+//     }
 
-    const resolvedPath = config.resolvedPaths[key]
-    const packageRoot = await findPackageRoot(
-      config.resolvedPaths.cwd,
-      resolvedPath
-    )
+//     const resolvedPath = config.resolvedPaths[key]
+//     const packageRoot = await findPackageRoot(
+//       config.resolvedPaths.cwd,
+//       resolvedPath
+//     )
 
-    if (!packageRoot) {
-      resolvedAliases[key] = config
-      continue
-    }
+//     if (!packageRoot) {
+//       resolvedAliases[key] = config
+//       continue
+//     }
 
-    resolvedAliases[key] = await getConfig(packageRoot)
-  }
+//     resolvedAliases[key] = await getConfig(packageRoot)
+//   }
 
-  const result = workspaceConfigSchema.safeParse(resolvedAliases)
-  if (!result.success) {
-    return null
-  }
+//   const result = workspaceConfigSchema.safeParse(resolvedAliases)
+//   if (!result.success) {
+//     return null
+//   }
 
-  return result.data
-}
+//   return result.data
+// }
 
 export async function findPackageRoot(cwd: string, resolvedPath: string) {
   const commonRoot = findCommonRoot(cwd, resolvedPath)
@@ -218,10 +157,4 @@ export function findCommonRoot(cwd: string, resolvedPath: string) {
   }
 
   return commonParts.join(path.sep)
-}
-
-// TODO: Cache this call.
-export async function getTargetStyleFromConfig(cwd: string, fallback: string) {
-  const projectInfo = await getProjectInfo(cwd)
-  return projectInfo?.tailwindVersion === "v4" ? "new-york-v4" : fallback
 }

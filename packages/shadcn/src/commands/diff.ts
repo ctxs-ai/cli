@@ -3,7 +3,6 @@ import path from "path"
 import {
   fetchTree,
   getItemTargetPath,
-  getRegistryBaseColor,
   getRegistryIndex,
 } from "@/src/registry/api"
 import { registryIndexSchema } from "@/src/registry/schema"
@@ -149,7 +148,6 @@ async function diffComponent(
   config: Config
 ) {
   const payload = await fetchTree(config.style, [component])
-  const baseColor = await getRegistryBaseColor(config.tailwind.baseColor)
 
   if (!payload) {
     return []
@@ -184,7 +182,6 @@ async function diffComponent(
         filename: file.path,
         raw: file.content,
         config,
-        baseColor,
       })
 
       const patch = diffLines(registryContent as string, fileContent)

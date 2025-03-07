@@ -1,18 +1,11 @@
 import { existsSync, promises as fs } from "fs"
 import path, { basename } from "path"
-import { getRegistryBaseColor } from "@/src/registry/api"
 import { RegistryItem, registryItemFileSchema } from "@/src/registry/schema"
 import { Config } from "@/src/utils/get-config"
 import { getProjectInfo } from "@/src/utils/get-project-info"
 import { highlighter } from "@/src/utils/highlighter"
 import { logger } from "@/src/utils/logger"
 import { spinner } from "@/src/utils/spinner"
-import { transform } from "@/src/utils/transformers"
-import { transformCssVars } from "@/src/utils/transformers/transform-css-vars"
-import { transformIcons } from "@/src/utils/transformers/transform-icons"
-import { transformImport } from "@/src/utils/transformers/transform-import"
-import { transformRsc } from "@/src/utils/transformers/transform-rsc"
-import { transformTwPrefixes } from "@/src/utils/transformers/transform-tw-prefix"
 import prompts from "prompts"
 import { z } from "zod"
 
@@ -45,9 +38,8 @@ export async function updateFiles(
     silent: options.silent,
   })?.start()
 
-  const [projectInfo, baseColor] = await Promise.all([
+  const [projectInfo] = await Promise.all([
     getProjectInfo(config.resolvedPaths.cwd),
-    getRegistryBaseColor(config.tailwind.baseColor),
   ])
 
   const filesCreated = []
@@ -60,7 +52,6 @@ export async function updateFiles(
     }
 
     let filePath = resolveFilePath(file, config, {
-      isSrcDir: projectInfo?.isSrcDir,
       commonRoot: findCommonRoot(
         files.map((f) => f.path),
         file.path
@@ -69,32 +60,8 @@ export async function updateFiles(
     const fileName = basename(file.path)
     const targetDir = path.dirname(filePath)
 
-    if (!config.tsx) {
-      filePath = filePath.replace(/\.tsx?$/, (match) =>
-        match === ".tsx" ? ".jsx" : ".js"
-      )
-    }
-
     const existingFile = existsSync(filePath)
-
-    // Run our transformers.
-    const content = await transform(
-      {
-        filename: file.path,
-        raw: file.content,
-        config,
-        baseColor,
-        transformJsx: !config.tsx,
-        isRemote: options.isRemote,
-      },
-      [
-        transformImport,
-        transformRsc,
-        transformCssVars,
-        transformTwPrefixes,
-        transformIcons,
-      ]
-    )
+    const content = file.content
 
     // Skip the file if it already exists and the content is the same.
     if (existingFile) {
@@ -154,8 +121,7 @@ export async function updateFiles(
 
   if (filesCreated.length) {
     filesCreatedSpinner?.succeed(
-      `Created ${filesCreated.length} ${
-        filesCreated.length === 1 ? "file" : "files"
+      `Created ${filesCreated.length} ${filesCreated.length === 1 ? "file" : "files"
       }:`
     )
     if (!options.silent) {
@@ -169,8 +135,7 @@ export async function updateFiles(
 
   if (filesUpdated.length) {
     spinner(
-      `Updated ${filesUpdated.length} ${
-        filesUpdated.length === 1 ? "file" : "files"
+      `Updated ${filesUpdated.length} ${filesUpdated.length === 1 ? "file" : "files"
       }:`,
       {
         silent: options.silent,
@@ -185,8 +150,7 @@ export async function updateFiles(
 
   if (filesSkipped.length) {
     spinner(
-      `Skipped ${filesSkipped.length} ${
-        filesUpdated.length === 1 ? "file" : "files"
+      `Skipped ${filesSkipped.length} ${filesUpdated.length === 1 ? "file" : "files"
       }: (files might be identical, use --overwrite to overwrite)`,
       {
         silent: options.silent,
@@ -223,42 +187,31 @@ export function resolveFilePath(
       return path.join(config.resolvedPaths.cwd, file.target.replace("~/", ""))
     }
 
-    return options.isSrcDir
-      ? path.join(
-          config.resolvedPaths.cwd,
-          "src",
-          file.target.replace("src/", "")
-        )
-      : path.join(config.resolvedPaths.cwd, file.target.replace("src/", ""))
+    return path.join(config.resolvedPaths.cwd, file.target)
   }
-
-  const targetDir = resolveFileTargetDirectory(file, config)
-
-  const relativePath = resolveNestedFilePath(file.path, targetDir)
-  return path.join(targetDir, relativePath)
 }
 
 function resolveFileTargetDirectory(
   file: z.infer<typeof registryItemFileSchema>,
   config: Config
 ) {
-  if (file.type === "registry:ui") {
-    return config.resolvedPaths.ui
-  }
+  // if (file.type === "registry:ui") {
+  //   return config.resolvedPaths.ui
+  // }
 
-  if (file.type === "registry:lib") {
-    return config.resolvedPaths.lib
-  }
+  // if (file.type === "registry:lib") {
+  //   return config.resolvedPaths.lib
+  // }
 
-  if (file.type === "registry:block" || file.type === "registry:component") {
-    return config.resolvedPaths.components
-  }
+  // if (file.type === "registry:block" || file.type === "registry:component") {
+  //   return config.resolvedPaths.components
+  // }
 
-  if (file.type === "registry:hook") {
-    return config.resolvedPaths.hooks
-  }
+  // if (file.type === "registry:hook") {
+  //   return config.resolvedPaths.hooks
+  // }
 
-  return config.resolvedPaths.components
+  return config.resolvedPaths.cwd
 }
 
 export function findCommonRoot(paths: string[], needle: string): string {

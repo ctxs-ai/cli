@@ -24,7 +24,8 @@ export function handleError(error: unknown) {
   }
 
   if (error instanceof Error) {
-    logger.error(error.message)
+    logger.error(error)
+    console.error(error)
     logger.break()
     process.exit(1)
   }

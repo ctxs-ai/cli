@@ -1,10 +1,8 @@
 import path from "path"
-import { Config, getTargetStyleFromConfig } from "@/src/utils/get-config"
-import { getProjectTailwindVersionFromConfig } from "@/src/utils/get-project-info"
+import { Config } from "@/src/utils/get-config"
 import { handleError } from "@/src/utils/handle-error"
 import { highlighter } from "@/src/utils/highlighter"
 import { logger } from "@/src/utils/logger"
-import { buildTailwindThemeColorsFromCssVars } from "@/src/utils/updaters/update-tailwind-config"
 import deepmerge from "deepmerge"
 import { HttpsProxyAgent } from "https-proxy-agent"
 import fetch from "node-fetch"
@@ -19,7 +17,7 @@ import {
   stylesSchema,
 } from "./schema"
 
-const REGISTRY_URL = process.env.REGISTRY_URL ?? "https://ui.shadcn.com/r"
+const REGISTRY_URL = process.env.REGISTRY_URL ?? "https://ctxs.ai/r"
 
 const agent = process.env.https_proxy
   ? new HttpsProxyAgent(process.env.https_proxy)
@@ -38,28 +36,6 @@ export async function getRegistryIndex() {
   }
 }
 
-export async function getRegistryStyles() {
-  try {
-    const [result] = await fetchRegistry(["styles/index.json"])
-
-    return stylesSchema.parse(result)
-  } catch (error) {
-    logger.error("\n")
-    handleError(error)
-    return []
-  }
-}
-
-export async function getRegistryIcons() {
-  try {
-    const [result] = await fetchRegistry(["icons/index.json"])
-    return iconsSchema.parse(result)
-  } catch (error) {
-    handleError(error)
-    return {}
-  }
-}
-
 export async function getRegistryItem(name: string, style: string) {
   try {
     const [result] = await fetchRegistry([
@@ -71,41 +47,6 @@ export async function getRegistryItem(name: string, style: string) {
     logger.break()
     handleError(error)
     return null
-  }
-}
-
-export async function getRegistryBaseColors() {
-  return [
-    {
-      name: "neutral",
-      label: "Neutral",
-    },
-    {
-      name: "gray",
-      label: "Gray",
-    },
-    {
-      name: "zinc",
-      label: "Zinc",
-    },
-    {
-      name: "stone",
-      label: "Stone",
-    },
-    {
-      name: "slate",
-      label: "Slate",
-    },
-  ]
-}
-
-export async function getRegistryBaseColor(baseColor: string) {
-  try {
-    const [result] = await fetchRegistry([`colors/${baseColor}.json`])
-
-    return registryBaseColorSchema.parse(result)
-  } catch (error) {
-    handleError(error)
   }
 }
 
@@ -156,10 +97,6 @@ export async function getItemTargetPath(
 ) {
   if (override) {
     return override
-  }
-
-  if (item.type === "registry:ui") {
-    return config.resolvedPaths.ui ?? config.resolvedPaths.components
   }
 
   const [parent, type] = item.type?.split(":") ?? []
@@ -274,36 +211,6 @@ export async function registryResolveItemsTree(
       return null
     }
 
-    // If we're resolving the index, we want to fetch
-    // the theme item if a base color is provided.
-    // We do this for index only.
-    // Other components will ship with their theme tokens.
-    if (names.includes("index")) {
-      if (config.tailwind.baseColor) {
-        const theme = await registryGetTheme(config.tailwind.baseColor, config)
-        if (theme) {
-          payload.unshift(theme)
-        }
-      }
-    }
-
-    let tailwind = {}
-    payload.forEach((item) => {
-      tailwind = deepmerge(tailwind, item.tailwind ?? {})
-    })
-
-    let cssVars = {}
-    payload.forEach((item) => {
-      cssVars = deepmerge(cssVars, item.cssVars ?? {})
-    })
-
-    let docs = ""
-    payload.forEach((item) => {
-      if (item.docs) {
-        docs += `${item.docs}\n`
-      }
-    })
-
     return registryResolvedItemsTreeSchema.parse({
       dependencies: deepmerge.all(
         payload.map((item) => item.dependencies ?? [])
@@ -312,9 +219,6 @@ export async function registryResolveItemsTree(
         payload.map((item) => item.devDependencies ?? [])
       ),
       files: deepmerge.all(payload.map((item) => item.files ?? [])),
-      tailwind,
-      cssVars,
-      docs,
     })
   } catch (error) {
     handleError(error)
@@ -329,14 +233,8 @@ async function resolveRegistryDependencies(
   const visited = new Set<string>()
   const payload: string[] = []
 
-  const style = config.resolvedPaths?.cwd
-    ? await getTargetStyleFromConfig(config.resolvedPaths.cwd, config.style)
-    : config.style
-
   async function resolveDependencies(itemUrl: string) {
-    const url = getRegistryUrl(
-      isUrl(itemUrl) ? itemUrl : `styles/${style}/${itemUrl}.json`
-    )
+    const url = getRegistryUrl(itemUrl)
 
     if (visited.has(url)) {
       return
@@ -364,74 +262,6 @@ async function resolveRegistryDependencies(
 
   await resolveDependencies(url)
   return Array.from(new Set(payload))
-}
-
-export async function registryGetTheme(name: string, config: Config) {
-  const [baseColor, tailwindVersion] = await Promise.all([
-    getRegistryBaseColor(name),
-    getProjectTailwindVersionFromConfig(config),
-  ])
-  if (!baseColor) {
-    return null
-  }
-
-  // TODO: Move this to the registry i.e registry:theme.
-  const theme = {
-    name,
-    type: "registry:theme",
-    tailwind: {
-      config: {
-        theme: {
-          extend: {
-            borderRadius: {
-              lg: "var(--radius)",
-              md: "calc(var(--radius) - 2px)",
-              sm: "calc(var(--radius) - 4px)",
-            },
-            colors: {},
-          },
-        },
-      },
-    },
-    cssVars: {
-      light: {
-        radius: "0.5rem",
-      },
-      dark: {},
-    },
-  } satisfies z.infer<typeof registryItemSchema>
-
-  if (config.tailwind.cssVariables) {
-    theme.tailwind.config.theme.extend.colors = {
-      ...theme.tailwind.config.theme.extend.colors,
-      ...buildTailwindThemeColorsFromCssVars(baseColor.cssVars.dark),
-    }
-    theme.cssVars = {
-      light: {
-        ...baseColor.cssVars.light,
-        ...theme.cssVars.light,
-      },
-      dark: {
-        ...baseColor.cssVars.dark,
-        ...theme.cssVars.dark,
-      },
-    }
-
-    if (tailwindVersion === "v4" && baseColor.cssVarsV4) {
-      theme.cssVars = {
-        light: {
-          ...theme.cssVars.light,
-          ...baseColor.cssVarsV4.light,
-        },
-        dark: {
-          ...theme.cssVars.dark,
-          ...baseColor.cssVarsV4.dark,
-        },
-      }
-    }
-  }
-
-  return theme
 }
 
 function getRegistryUrl(path: string) {
