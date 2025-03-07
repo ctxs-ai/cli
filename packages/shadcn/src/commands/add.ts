@@ -81,7 +81,6 @@ export const add = new Command()
       if (!options.components?.length) {
         options.components = await promptForRegistryComponents(options)
       }
-      console.log("options.components", options.components)
 
       const config = await getConfig(options.cwd)
       if (!config) {
